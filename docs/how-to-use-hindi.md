@@ -507,6 +507,140 @@ File/line rule:
 - Agar sirf component name available hai to component name dikhayega.
 - Agar file/line unknown hai to VS Code me component/error/API text search karo ya `Analyze` dabao.
 
+## 9D. Buttons Ka Matlab
+
+### Pause Capture / Resume Capture
+
+`Capture` ka matlab live recording hai.
+
+Abid Debugger background me ye events record karta hai:
+
+- console error/warning
+- API request/response
+- Angular change detection
+- memory heap sample
+- detached DOM
+- listener leak
+- FPS/long task
+
+`Pause Capture` dabane se app band nahi hoti. Sirf new events record hona rukta hai.
+
+Use kab karna hai:
+
+- Jab bahut zyada logs aa rahe ho.
+- Jab current data freeze karke dekhna ho.
+- Jab issue reproduce ho gaya aur tum analyze karna chahte ho.
+
+`Resume Capture` dabane se recording dobara start hoti hai.
+
+### Analyze
+
+`Analyze` captured data ko local AI engine/server ko bhejta hai.
+
+Iske baad tool ye karta hai:
+
+- repeated errors group karta hai
+- slow APIs identify karta hai
+- high change detection components detect karta hai
+- memory leak suspects summarize karta hai
+- AI Suggestions tab me root-cause style explanation deta hai
+
+Important:
+
+- Analyze ke liye `ai-engine` server running hona chahiye.
+- Agar server band hai to AI/root-cause result nahi aayega.
+
+### Heap Snapshot
+
+`Heap Snapshot` memory ka ek moment ka photo hota hai.
+
+Simple example:
+
+- Pehle snapshot: page fresh load ke baad memory kya hai
+- App use karo: list open/close, modal open/close, route change
+- Dusra snapshot: memory me kya extra retain ho gaya
+
+Tool compare karke suspect karta hai:
+
+- detached DOM nodes
+- retained components
+- listeners cleanup nahi hua
+- large objects memory me stuck
+
+Important:
+
+- Heap snapshot heavy operation hai.
+- Baar-baar mat dabao.
+- Agar Chrome permission maange to allow karna padega.
+
+### Clear
+
+`Clear` sirf Abid Debugger panel ka current data clear karta hai.
+
+Ye nahi karta:
+
+- Angular app reload
+- server restart
+- database clear
+- code change
+
+Use kab karna hai:
+
+- Fresh test start karna ho.
+- Pehle ke logs remove karke specific issue reproduce karna ho.
+
+## 9E. File/Line Kaise Milta Hai
+
+Browser kabhi-kabhi original Angular file nahi deta. Wo sirf compiled bundle deta hai:
+
+```text
+http://localhost:4200/main.js:9235:29
+http://localhost:4200/polyfills.js:6467:28
+chrome-extension://.../content/inject.js
+```
+
+Ye original source file nahi hai.
+
+Abid Debugger ab location ko categories me dikhata hai:
+
+- `Project file` = actual file, jaise `src/app/...component.ts`
+- `Component` = component name mila, file search karni hai
+- `API endpoint` = URL mila, code file nahi
+- `Compiled bundle` = `main.js/polyfills.js`; source map se original file dhoondhna padega
+- `Extension internal stack` = debugger ka wrapper stack; usually ignore
+- `Dependency file` = `node_modules`; pehle apne code me library usage search karo
+
+Exact Angular file/line tabhi milega jab source maps available hon.
+
+Angular dev build me source maps usually ON hote hain. Agar exact file nahi mil rahi:
+
+1. Angular app `development` mode me run karo.
+2. `angular.json` me source maps enabled hain ya nahi check karo.
+3. Chrome DevTools Console me same error ka stack check karo.
+4. Component/API/error text VS Code me search karo.
+
+Example:
+
+```text
+Compiled bundle: http://localhost:4200/main.js:9235:29
+```
+
+Iska matlab:
+
+- Ye tumhari original `.ts` file nahi hai.
+- Tool source map se original file dhoondhne ki koshish karega.
+- Agar source map mila to `Project file: src/app/...` dikh jayega.
+  
+```text
+Component: LeadsActionsComponent
+```
+
+Iska matlab:
+
+- Tool ko component name mila.
+- VS Code me `LeadsActionsComponent` search karo.
+- Us component ka `.ts` aur `.html` file check karo.
+
 ## 10. Heap / Memory Snapshot Test
 
 DevTools panel me:

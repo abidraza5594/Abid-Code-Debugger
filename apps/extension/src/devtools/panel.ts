@@ -14,10 +14,12 @@ type SeverityFilter = 'all' | 'critical' | 'high' | 'medium' | 'low' | 'info' | 
 type SpeedFilter = 'all' | 'failed' | 'slow' | 'medium' | 'fast';
 
 interface DisplayLocation {
-  file: string;
+  kind: 'source' | 'component' | 'api' | 'compiled' | 'internal' | 'dependency' | 'unknown';
+  file?: string;
   line?: number;
   column?: number;
   symbol?: string;
+  note?: string;
 }
 
 const port = chrome.runtime.connect({ name: 'devtools-panel' });
@@ -36,7 +38,37 @@ const state = {
     speed: 'all' as SpeedFilter,
     onlyIssues: false,
   },
+  ui: {
+    helpOpen: false,
+  },
+  sourceMaps: {
+    resolved: new Map<string, DisplayLocation>(),
+    pending: new Set<string>(),
+    failed: new Set<string>(),
+    componentResolved: new Map<string, DisplayLocation>(),
+    componentPending: new Set<string>(),
+    componentFailed: new Set<string>(),
+    cache: new Map<string, Promise<ParsedSourceMap | null>>(),
+    scriptUrls: undefined as Promise<string[]> | undefined,
+  },
 };
+
+interface ParsedSourceMap {
+  url: string;
+  sourceRoot?: string;
+  sources: string[];
+  sourcesContent?: string[];
+  names: string[];
+  lines: MappingSegment[][];
+}
+
+interface MappingSegment {
+  generatedColumn: number;
+  sourceIndex?: number;
+  originalLine?: number;
+  originalColumn?: number;
+  nameIndex?: number;
+}
 
 port.postMessage({
   id: uid('reg'),
@@ -128,8 +160,8 @@ issuesOnlyInput.addEventListener('change', () => {
   state.capturing = !state.capturing;
   sendControl({ name: state.capturing ? 'start-capture' : 'stop-capture' });
   (document.getElementById('btn-toggle') as HTMLButtonElement).textContent = state.capturing
-    ? 'Pause'
-    : 'Resume';
+    ? 'Pause Capture'
+    : 'Resume Capture';
   statusLine.textContent = state.capturing ? 'Live capture running' : 'Capture paused';
 });
 
@@ -155,6 +187,11 @@ issuesOnlyInput.addEventListener('change', () => {
 main.addEventListener('click', (ev) => {
   const target = ev.target;
   if (!(target instanceof HTMLElement)) return;
+  if (target.closest('[data-action="toggle-help"]')) {
+    state.ui.helpOpen = !state.ui.helpOpen;
+    render();
+    return;
+  }
   const analysisId = target.dataset.fixAnalysisId;
   if (!analysisId) return;
   statusLine.textContent = 'Safe fix suggestion generate ho raha hai';
@@ -340,14 +377,20 @@ function renderTabIntro(tab: Tab): string {
 
 function renderToolbarHelp(): string {
   return `
-    <details class="toolbar-help">
-      <summary>Buttons, colors, shortcuts/terms ka matlab</summary>
-      <div class="help-grid">
-        <div><strong>Pause</strong><span>Capture temporarily stop. App chalti rahegi, bas new events record nahi honge.</span></div>
-        <div><strong>Resume</strong><span>Pause ke baad capture dobara start.</span></div>
+    <section class="toolbar-help">
+      <button class="toolbar-help-toggle" type="button" data-action="toggle-help" aria-expanded="${state.ui.helpOpen}">
+        ${state.ui.helpOpen ? 'v' : '>'} Buttons, colors, shortcuts/terms ka matlab
+      </button>
+      ${
+        state.ui.helpOpen
+          ? `<div class="help-grid">
+        <div><strong>Pause Capture</strong><span>Live recording temporarily stop. App chalti rahegi, bas new events record nahi honge.</span></div>
+        <div><strong>Resume Capture</strong><span>Pause ke baad live recording dobara start.</span></div>
         <div><strong>Analyze</strong><span>Captured data local AI engine ko bhejta hai. Isse root-cause summary banti hai.</span></div>
-        <div><strong>Heap</strong><span>Chrome Debugger se memory snapshot request. Heavy operation hai; baar-baar mat dabao.</span></div>
+        <div><strong>Heap Snapshot</strong><span>Chrome Debugger se memory ka snapshot. Heavy operation hai; baar-baar mat dabao.</span></div>
         <div><strong>Clear</strong><span>Current panel data clear. App ya engine reset nahi hota.</span></div>
+        <div><strong>Capture</strong><span>Live recording hai: console error, API, Angular CD, memory, FPS jaise events collect hote hain.</span></div>
+        <div><strong>Memory snapshot</strong><span>Memory ka ek moment ka photo. Pehle/baad compare karke leak suspects milte hain.</span></div>
         <div><strong>CD</strong><span>Change Detection. Angular component check/render path me aaya.</span></div>
         <div><strong>FPS</strong><span>Frames per second. 60 smooth, 30 low, 24 se neeche lag.</span></div>
         <div><strong>MS</strong><span>Milliseconds. 1000ms = 1 second.</span></div>
@@ -358,8 +401,13 @@ function renderToolbarHelp(): string {
         <div><strong>Green</strong><span>Normal/fast/safe.</span></div>
         <div><strong>Yellow</strong><span>Warning/medium/slower. Watch karo.</span></div>
         <div><strong>Red</strong><span>High/failed/slow/serious. Priority do.</span></div>
-      </div>
-    </details>`;
+        <div><strong>Project file</strong><span>Yahi actual source file hai jahan code check karna hota hai.</span></div>
+        <div><strong>Compiled bundle</strong><span>main.js/polyfills.js original TypeScript file nahi hai. Source map ya search ki zarurat hoti hai.</span></div>
+        <div><strong>Source map</strong><span>Browser map jo main.js line ko original Angular .ts/.html line me convert karta hai.</span></div>
+      </div>`
+          : ''
+      }
+    </section>`;
 }
 
 function renderEmpty(tab: Tab): string {
@@ -503,23 +551,39 @@ function networkBadgeClass(event: Extract<CapturedEvent, { source: 'fetch' | 'xh
 function locationForEvent(event: CapturedEvent): DisplayLocation | undefined {
   switch (event.source) {
     case 'error':
-      return fromFilename(event.filename, event.lineno, event.colno) ?? parseStackLocation(event.stack);
+      return (
+        fromText(event.message) ??
+        parseStackLocation(event.stack) ??
+        fromFilename(event.filename, event.lineno, event.colno) ??
+        componentLocation(event.componentHint)
+      );
     case 'rejection':
-      return parseStackLocation(event.stack);
+      return fromText(event.reason) ?? parseStackLocation(event.stack) ?? componentLocation(event.origin);
     case 'console':
-      return parseStackLocation(event.stack);
+      return fromText(event.args.join('\n')) ?? parseStackLocation(event.stack);
     case 'fetch':
     case 'xhr':
-      return parseStackLocation(event.initiator?.stack);
+      return parseStackLocation(event.initiator?.stack) ?? apiLocation(event.url);
     case 'change-detection':
-      return event.componentName
-        ? { file: '', symbol: event.componentName }
-        : undefined;
+      return componentLocation(event.componentName);
     case 'rxjs':
-      return parseStackLocation(event.createdAtStack);
+      return parseStackLocation(event.createdAtStack) ?? componentLocation(event.componentHint);
     default:
       return undefined;
   }
+}
+
+function fromText(text: string | undefined): DisplayLocation | undefined {
+  if (!text) return undefined;
+  return parseSourcePathFromText(text) ?? apiLocation(firstUrl(text));
+}
+
+function componentLocation(symbol: string | undefined): DisplayLocation | undefined {
+  return symbol ? { kind: 'component', symbol } : undefined;
+}
+
+function apiLocation(url: string | undefined): DisplayLocation | undefined {
+  return url ? { kind: 'api', file: cleanupFile(url) } : undefined;
 }
 
 function fromFilename(
@@ -528,32 +592,104 @@ function fromFilename(
   column: number | undefined,
 ): DisplayLocation | undefined {
   if (!file) return undefined;
-  return { file: cleanupFile(file), ...(line ? { line } : {}), ...(column ? { column } : {}) };
+  return classifyLocation(cleanupFile(file), undefined, line, column);
 }
 
 function parseStackLocation(stack: string | undefined): DisplayLocation | undefined {
   if (!stack) return undefined;
   const lines = stack.split('\n').map((line) => line.trim()).filter(Boolean);
+  let compiledFallback: DisplayLocation | undefined;
+  let appFallback: DisplayLocation | undefined;
+  let internalFallback: DisplayLocation | undefined;
   for (const line of lines) {
+    const sourceFromLine = parseSourcePathFromText(line);
+    if (sourceFromLine) return sourceFromLine;
+
     const withSymbol = /at\s+(.+?)\s+\((.+?):(\d+):(\d+)\)/.exec(line);
     if (withSymbol) {
-      return {
-        symbol: withSymbol[1],
-        file: cleanupFile(withSymbol[2] ?? ''),
-        line: Number(withSymbol[3]),
-        column: Number(withSymbol[4]),
-      };
+      const location = classifyLocation(
+        cleanupFile(withSymbol[2] ?? ''),
+        withSymbol[1],
+        Number(withSymbol[3]),
+        Number(withSymbol[4]),
+      );
+      if (location?.kind === 'source') return location;
+      if (location?.kind === 'compiled') compiledFallback ??= location;
+      else if (location?.kind === 'internal') internalFallback ??= location;
+      else appFallback ??= location;
+      continue;
     }
     const noSymbol = /at\s+(.+?):(\d+):(\d+)/.exec(line);
     if (noSymbol) {
-      return {
-        file: cleanupFile(noSymbol[1] ?? ''),
-        line: Number(noSymbol[2]),
-        column: Number(noSymbol[3]),
-      };
+      const location = classifyLocation(
+        cleanupFile(noSymbol[1] ?? ''),
+        undefined,
+        Number(noSymbol[2]),
+        Number(noSymbol[3]),
+      );
+      if (location?.kind === 'source') return location;
+      if (location?.kind === 'compiled') compiledFallback ??= location;
+      else if (location?.kind === 'internal') internalFallback ??= location;
+      else appFallback ??= location;
     }
   }
+  return compiledFallback ?? appFallback ?? internalFallback;
+}
+
+function parseSourcePathFromText(text: string): DisplayLocation | undefined {
+  const patterns = [
+    /([A-Za-z]:\\[^:\n\r]*?(?:\\src\\|\\apps\\|\\libs\\)[^:\n\r]*?\.(?:ts|html|scss|css))(?:[:(](\d+)(?::(\d+))?)?/i,
+    /(webpack:\/\/\/(?:\.\/)?[^)\s]+?\.(?:ts|html|scss|css))(?:[:](\d+)(?::(\d+))?)?/i,
+    /((?:\.\/)?(?:src|apps|libs)\/[^)\s]+?\.(?:ts|html|scss|css))(?:[:](\d+)(?::(\d+))?)?/i,
+  ];
+  for (const pattern of patterns) {
+    const match = pattern.exec(text);
+    if (!match) continue;
+    return {
+      kind: 'source',
+      file: cleanupFile(match[1] ?? ''),
+      ...(match[2] ? { line: Number(match[2]) } : {}),
+      ...(match[3] ? { column: Number(match[3]) } : {}),
+    };
+  }
   return undefined;
+}
+
+function classifyLocation(
+  rawFile: string,
+  symbol?: string,
+  line?: number,
+  column?: number,
+): DisplayLocation | undefined {
+  if (!rawFile) return symbol ? { kind: 'component', symbol } : undefined;
+  const file = cleanupFile(rawFile);
+  const lower = file.toLowerCase();
+  const base = file.split(/[\\/]/).pop()?.toLowerCase() ?? lower;
+  const isExtension = lower.startsWith('chrome-extension://') || lower.includes('/content/inject.js');
+  const isNodeModule = /[\\/]node_modules[\\/]/i.test(file);
+  const isProjectSource = /(^|[\\/])(src|apps|libs)[\\/].+\.(ts|html|scss|css)$/i.test(file)
+    || /\.(component|service|directive|pipe|guard|resolver|interceptor)\.(ts|html|scss|css)$/i.test(file)
+    || /\\src\\.+\.(ts|html|scss|css)$/i.test(file);
+  const isCompiled = ['main.js', 'polyfills.js', 'runtime.js', 'vendor.js', 'scripts.js'].includes(base)
+    || (/^https?:\/\//i.test(file) && /\.(?:js|mjs)$/i.test(base));
+
+  const common = {
+    file,
+    ...(symbol ? { symbol } : {}),
+    ...(line ? { line } : {}),
+    ...(column ? { column } : {}),
+  };
+
+  if (isExtension) return { kind: 'internal', ...common };
+  if (isNodeModule) return { kind: 'dependency', ...common };
+  if (isProjectSource) return { kind: 'source', ...common };
+  if (isCompiled) return { kind: 'compiled', ...common };
+  return { kind: 'unknown', ...common };
+}
+
+function firstUrl(text: string): string | undefined {
+  const match = /https?:\/\/[^\s,}]+/i.exec(text);
+  return match?.[0];
 }
 
 function cleanupFile(file: string): string {
@@ -562,6 +698,375 @@ function cleanupFile(file: string): string {
     .replace(/^ng:\/\//, '')
     .replace(/^file:\/\//, '')
     .replace(/\?.*$/, '');
+}
+
+function resolveLocation(location: DisplayLocation | undefined): DisplayLocation | undefined {
+  if (!location) {
+    return location;
+  }
+  if (location.kind === 'component' && location.symbol) {
+    return resolveComponentLocation(location);
+  }
+  if (location.kind !== 'compiled' || !location.file || !location.line || location.column === undefined) {
+    return location;
+  }
+  const key = sourceMapKey(location);
+  const resolved = state.sourceMaps.resolved.get(key);
+  if (resolved) return resolved;
+
+  if (state.sourceMaps.failed.has(key)) {
+    return { ...location, note: 'source-map-failed' };
+  }
+
+  if (!state.sourceMaps.pending.has(key)) {
+    scheduleSourceMapResolution(location);
+  }
+  return { ...location, note: 'source-map-pending' };
+}
+
+function resolveComponentLocation(location: DisplayLocation): DisplayLocation {
+  const symbol = location.symbol;
+  if (!symbol) return location;
+  const key = symbol.toLowerCase();
+  const resolved = state.sourceMaps.componentResolved.get(key);
+  if (resolved) return resolved;
+
+  if (state.sourceMaps.componentFailed.has(key)) {
+    return { ...location, note: 'source-map-failed' };
+  }
+
+  if (!state.sourceMaps.componentPending.has(key)) {
+    scheduleComponentSourceLookup(symbol);
+  }
+  return { ...location, note: 'source-map-pending' };
+}
+
+function scheduleComponentSourceLookup(symbol: string): void {
+  const key = symbol.toLowerCase();
+  state.sourceMaps.componentPending.add(key);
+  void findComponentSource(symbol)
+    .then((mapped) => {
+      if (mapped) {
+        state.sourceMaps.componentResolved.set(key, mapped);
+      } else {
+        state.sourceMaps.componentFailed.add(key);
+      }
+      render();
+    })
+    .catch(() => {
+      state.sourceMaps.componentFailed.add(key);
+      render();
+    })
+    .finally(() => {
+      state.sourceMaps.componentPending.delete(key);
+    });
+}
+
+function sourceMapKey(location: DisplayLocation): string {
+  return `${location.file ?? ''}:${location.line ?? ''}:${location.column ?? ''}`;
+}
+
+function scheduleSourceMapResolution(location: DisplayLocation): void {
+  const key = sourceMapKey(location);
+  state.sourceMaps.pending.add(key);
+  void mapGeneratedLocation(location)
+    .then((mapped) => {
+      if (mapped) {
+        state.sourceMaps.resolved.set(key, mapped);
+      } else {
+        state.sourceMaps.failed.add(key);
+      }
+      render();
+    })
+    .catch(() => {
+      state.sourceMaps.failed.add(key);
+      render();
+    })
+    .finally(() => {
+      state.sourceMaps.pending.delete(key);
+    });
+}
+
+async function mapGeneratedLocation(location: DisplayLocation): Promise<DisplayLocation | undefined> {
+  if (!location.file || !location.line || location.column === undefined) return undefined;
+  if (!/^https?:\/\//i.test(location.file)) return undefined;
+
+  const map = await sourceMapForScript(location.file);
+  if (!map) return undefined;
+  const generatedLine = location.line;
+  const generatedColumn = Math.max(0, location.column - 1);
+  const segments = map.lines[generatedLine - 1];
+  if (!segments || segments.length === 0) return undefined;
+
+  let best: MappingSegment | undefined;
+  for (const segment of segments) {
+    if (segment.generatedColumn > generatedColumn) break;
+    best = segment;
+  }
+  if (best?.sourceIndex === undefined || best.originalLine === undefined || best.originalColumn === undefined) {
+    return undefined;
+  }
+
+  const source = map.sources[best.sourceIndex];
+  if (!source) return undefined;
+  return {
+    kind: 'source',
+    file: normalizeSourceMapPath(source, map.sourceRoot, map.url),
+    line: best.originalLine + 1,
+    column: best.originalColumn + 1,
+    symbol: best.nameIndex !== undefined ? map.names[best.nameIndex] ?? location.symbol : location.symbol,
+  };
+}
+
+async function findComponentSource(symbol: string): Promise<DisplayLocation | undefined> {
+  const urls = await inspectedScriptUrls();
+  const matchers = componentMatchers(symbol);
+
+  for (const scriptUrl of urls) {
+    const map = await sourceMapForScript(cleanupFile(scriptUrl));
+    if (!map) continue;
+
+    let best: { index: number; file: string; score: number } | undefined;
+    map.sources.forEach((source, index) => {
+      const file = normalizeSourceMapPath(source, map.sourceRoot, map.url);
+      const lower = file.toLowerCase();
+      const score = matchers.reduce((total, matcher) => total + (lower.includes(matcher) ? 1 : 0), 0);
+      if (score === 0) return;
+      const projectBonus = /(^|\/)(src|apps|libs)\//i.test(file) ? 2 : 0;
+      const nodePenalty = /(^|\/)node_modules\//i.test(file) ? -2 : 0;
+      const total = score + projectBonus + nodePenalty;
+      if (!best || total > best.score) best = { index, file, score: total };
+    });
+
+    if (best) {
+      return {
+        kind: /(^|\/)node_modules\//i.test(best.file) ? 'dependency' : 'source',
+        file: best.file,
+        line: findComponentLine(map.sourcesContent?.[best.index], symbol),
+        symbol,
+      };
+    }
+  }
+
+  return undefined;
+}
+
+function inspectedScriptUrls(): Promise<string[]> {
+  if (state.sourceMaps.scriptUrls) return state.sourceMaps.scriptUrls;
+  state.sourceMaps.scriptUrls = new Promise((resolve) => {
+    chrome.devtools.inspectedWindow.eval(
+      `Array.from(document.scripts).map((s) => s.src).filter(Boolean)`,
+      (result, exceptionInfo) => {
+        if (exceptionInfo?.isException || !Array.isArray(result)) {
+          resolve([]);
+          return;
+        }
+        const urls = result
+          .filter((url): url is string => typeof url === 'string' && /^https?:\/\//i.test(url))
+          .filter((url) => /\.(?:js|mjs)(?:$|\?)/i.test(url));
+        const mainFirst = urls.sort((a, b) => scriptPriority(a) - scriptPriority(b));
+        resolve(mainFirst.slice(0, 8));
+      },
+    );
+  });
+  return state.sourceMaps.scriptUrls;
+}
+
+function scriptPriority(url: string): number {
+  const file = url.split(/[/?#]/).filter(Boolean).at(-1)?.toLowerCase() ?? url.toLowerCase();
+  if (file.startsWith('main')) return 0;
+  if (file.startsWith('runtime')) return 1;
+  if (file.startsWith('polyfills')) return 2;
+  if (file.startsWith('scripts')) return 3;
+  if (file.startsWith('vendor')) return 4;
+  return 5;
+}
+
+function componentMatchers(symbol: string): string[] {
+  const stripped = symbol.replace(/(Component|Directive|Pipe|Service|Guard|Resolver|Interceptor)$/i, '');
+  const kebab = stripped
+    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+    .replace(/[_\s]+/g, '-')
+    .toLowerCase();
+  const lower = symbol.toLowerCase();
+  return Array.from(new Set([
+    `${kebab}.component`,
+    `${kebab}.directive`,
+    `${kebab}.pipe`,
+    `${kebab}.service`,
+    kebab,
+    lower,
+    stripped.toLowerCase(),
+  ].filter(Boolean)));
+}
+
+function findComponentLine(sourceContent: string | undefined, symbol: string): number | undefined {
+  if (!sourceContent) return undefined;
+  const classPattern = new RegExp(`\\bclass\\s+${escapeRegExp(symbol)}\\b`);
+  const lines = sourceContent.split(/\r?\n/);
+  const index = lines.findIndex((line) => classPattern.test(line));
+  return index >= 0 ? index + 1 : undefined;
+}
+
+function escapeRegExp(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function sourceMapForScript(scriptUrl: string): Promise<ParsedSourceMap | null> {
+  const cached = state.sourceMaps.cache.get(scriptUrl);
+  if (cached) return cached;
+  const promise = loadSourceMapForScript(scriptUrl);
+  state.sourceMaps.cache.set(scriptUrl, promise);
+  return promise;
+}
+
+async function loadSourceMapForScript(scriptUrl: string): Promise<ParsedSourceMap | null> {
+  const script = await fetch(scriptUrl, { cache: 'force-cache' }).then((res) => (res.ok ? res.text() : ''));
+  if (!script) return null;
+  const sourceMappingUrl = extractSourceMappingUrl(script);
+  if (!sourceMappingUrl) return null;
+
+  let mapText: string;
+  let mapUrl = scriptUrl;
+  if (sourceMappingUrl.startsWith('data:')) {
+    mapText = decodeDataSourceMap(sourceMappingUrl);
+  } else {
+    mapUrl = new URL(sourceMappingUrl, scriptUrl).toString();
+    mapText = await fetch(mapUrl, { cache: 'force-cache' }).then((res) => (res.ok ? res.text() : ''));
+  }
+  if (!mapText) return null;
+
+  const raw = JSON.parse(mapText) as {
+    version: number;
+    sourceRoot?: string;
+    sources?: string[];
+    sourcesContent?: string[];
+    names?: string[];
+    mappings?: string;
+  };
+  if (raw.version !== 3 || !raw.mappings || !raw.sources) return null;
+  return {
+    url: mapUrl,
+    sourceRoot: raw.sourceRoot,
+    sources: raw.sources,
+    sourcesContent: raw.sourcesContent,
+    names: raw.names ?? [],
+    lines: decodeMappings(raw.mappings),
+  };
+}
+
+function extractSourceMappingUrl(script: string): string | undefined {
+  const matches = [...script.matchAll(/\/\/# sourceMappingURL=([^\s]+)/g)];
+  return matches.at(-1)?.[1];
+}
+
+function decodeDataSourceMap(dataUrl: string): string {
+  const comma = dataUrl.indexOf(',');
+  if (comma === -1) return '';
+  const meta = dataUrl.slice(0, comma);
+  const body = dataUrl.slice(comma + 1);
+  return meta.includes(';base64') ? atob(body) : decodeURIComponent(body);
+}
+
+function normalizeSourceMapPath(source: string, sourceRoot: string | undefined, mapUrl: string): string {
+  let combined = source;
+  if (sourceRoot && !/^(?:webpack|ng|file|https?):\/\//i.test(source)) {
+    combined = `${sourceRoot.replace(/\/$/, '')}/${source.replace(/^\//, '')}`;
+  }
+  combined = cleanupFile(combined).replace(/\\/g, '/');
+  combined = combined.replace(/^\/+/, '').replace(/^\.\//, '');
+  combined = combined.replace(/^webpack:\/\/\/?/, '').replace(/^ng:\/\/\/?/, '');
+  const srcIndex = combined.search(/(?:^|\/)(src|apps|libs)\//i);
+  if (srcIndex >= 0) return combined.slice(srcIndex).replace(/^\//, '');
+
+  try {
+    const url = new URL(combined, mapUrl);
+    const path = url.pathname.replace(/^\//, '');
+    const urlSrcIndex = path.search(/(?:^|\/)(src|apps|libs)\//i);
+    return urlSrcIndex >= 0 ? path.slice(urlSrcIndex) : path || combined;
+  } catch {
+    return combined;
+  }
+}
+
+function decodeMappings(mappings: string): MappingSegment[][] {
+  const lines: MappingSegment[][] = [[]];
+  let index = 0;
+  let generatedColumn = 0;
+  let sourceIndex = 0;
+  let originalLine = 0;
+  let originalColumn = 0;
+  let nameIndex = 0;
+
+  while (index < mappings.length) {
+    const char = mappings[index];
+    if (char === ';') {
+      lines.push([]);
+      generatedColumn = 0;
+      index += 1;
+      continue;
+    }
+    if (char === ',') {
+      index += 1;
+      continue;
+    }
+
+    const generated = readVlq(mappings, index);
+    index = generated.next;
+    generatedColumn += generated.value;
+    const segment: MappingSegment = { generatedColumn };
+
+    if (index < mappings.length && mappings[index] !== ',' && mappings[index] !== ';') {
+      const source = readVlq(mappings, index);
+      sourceIndex += source.value;
+      index = source.next;
+
+      const line = readVlq(mappings, index);
+      originalLine += line.value;
+      index = line.next;
+
+      const column = readVlq(mappings, index);
+      originalColumn += column.value;
+      index = column.next;
+
+      segment.sourceIndex = sourceIndex;
+      segment.originalLine = originalLine;
+      segment.originalColumn = originalColumn;
+
+      if (index < mappings.length && mappings[index] !== ',' && mappings[index] !== ';') {
+        const name = readVlq(mappings, index);
+        nameIndex += name.value;
+        index = name.next;
+        segment.nameIndex = nameIndex;
+      }
+    }
+
+    lines[lines.length - 1]!.push(segment);
+  }
+
+  return lines;
+}
+
+const VLQ_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+function readVlq(input: string, start: number): { value: number; next: number } {
+  let result = 0;
+  let shift = 0;
+  let index = start;
+  let continuation = true;
+
+  while (continuation && index < input.length) {
+    const digit = VLQ_CHARS.indexOf(input[index]!);
+    if (digit < 0) throw new Error('Invalid source-map VLQ digit');
+    continuation = Boolean(digit & 32);
+    result += (digit & 31) << shift;
+    shift += 5;
+    index += 1;
+  }
+
+  const negative = result & 1;
+  const value = result >> 1;
+  return { value: negative ? -value : value, next: index };
 }
 
 function locationText(location: DisplayLocation | undefined): string {
@@ -573,11 +1078,39 @@ function locationText(location: DisplayLocation | undefined): string {
 }
 
 function locationHelp(location: DisplayLocation | undefined): string {
+  location = resolveLocation(location);
   if (!location) {
     return 'Location: file/line available nahi. Analyze dabao ya Chrome Console stack/source maps check karo.';
   }
-  if (!location.file && location.symbol) {
-    return `Component: ${location.symbol}. File dhoondhne ke liye VS Code me component name search karo.`;
+  if (location.kind === 'source') {
+    return `Project file: ${locationText(location)}. Is file ko code editor me check karo.`;
+  }
+  if (location.kind === 'component') {
+    if (location.note === 'source-map-pending') {
+      return `Component: ${location.symbol}. Source map se is component ki Angular file dhoondh rahe hain...`;
+    }
+    if (location.note === 'source-map-failed') {
+      return `Component: ${location.symbol}. Exact file auto-resolve nahi hui; VS Code me component name search karo.`;
+    }
+    return `Component: ${location.symbol}. Exact file nahi mila; VS Code me component name search karo.`;
+  }
+  if (location.kind === 'api') {
+    return `API endpoint: ${location.file}. Ye code file nahi hai; is endpoint ko call karne wala service/component search karo.`;
+  }
+  if (location.kind === 'compiled') {
+    if (location.note === 'source-map-pending') {
+      return `Compiled bundle: ${locationText(location)}. Source map se original Angular file dhoondh rahe hain...`;
+    }
+    if (location.note === 'source-map-failed') {
+      return `Compiled bundle: ${locationText(location)}. Source map load nahi hua, isliye exact TS/html line nahi mili. Angular app me source maps enable karo.`;
+    }
+    return `Compiled bundle: ${locationText(location)}. Ye original TS file nahi hai; source map nahi mila. Error/API/component text VS Code me search karo.`;
+  }
+  if (location.kind === 'internal') {
+    return `Extension internal stack: ${locationText(location)}. Isko ignore karo; original app stack/source map available nahi hai.`;
+  }
+  if (location.kind === 'dependency') {
+    return `Dependency file: ${locationText(location)}. Pehle apne code me is library ka usage/config search karo.`;
   }
   return `Location: ${locationText(location)}`;
 }
@@ -671,26 +1204,68 @@ function renderAnalyses(): string {
 }
 
 function renderAnalysisLocations(result: AnalysisResult): string {
-  const known = result.locations.filter((loc) => loc.file || loc.symbol);
-  if (known.length === 0) {
+  const endpoint = endpointFromAnalysis(result);
+  const known = result.locations
+    .map((loc) => classifyLocation(loc.file, loc.symbol, loc.line, loc.column))
+    .map((loc) => resolveLocation(loc))
+    .filter((loc): loc is DisplayLocation => Boolean(loc));
+
+  const source = known.filter((loc) => loc.kind === 'source');
+  if (source.length > 0) {
     return `
-      <div class="location-card warn">
-        <strong>File/line:</strong>
-        Abhi exact file/line nahi mila. Reason: stack trace/source map available nahi tha ya detector component-level signal de raha hai.
-        VS Code me component/API/error text search karo, ya Analyze dabao for better root-cause context.
-      </div>`;
-  }
-  return `
     <div class="location-card">
-      <strong>Possible location:</strong>
-      ${known
+      <strong>Project file:</strong>
+      ${source.map((loc) => escapeHtml(locationText(loc))).join('<br />')}
+    </div>`;
+  }
+
+  const components = known.filter((loc) => loc.kind === 'component');
+  if (components.length > 0) {
+    return `
+    <div class="location-card">
+      <strong>Component hint:</strong>
+      ${components
         .map((loc) =>
           escapeHtml(
-            `${loc.file || '(file unknown)'}${loc.line ? `:${loc.line}${loc.column ? `:${loc.column}` : ''}` : ''}${loc.symbol ? ` - ${loc.symbol}` : ''}`,
+            loc.note === 'source-map-pending'
+              ? `${loc.symbol}. Source map se component file dhoondh rahe hain...`
+              : `${loc.symbol}. VS Code me component name search karo; exact file/line source map ke bina nahi milta.`,
           ),
         )
         .join('<br />')}
     </div>`;
+  }
+
+  if (endpoint) {
+    return `
+    <div class="location-card">
+      <strong>API endpoint:</strong>
+      ${escapeHtml(endpoint)}<br />
+      <span>Ye code file nahi hai. Service/component me is endpoint path ko search karo.</span>
+    </div>`;
+  }
+
+  const compiledOrInternal = known.filter((loc) => loc.kind === 'compiled' || loc.kind === 'internal' || loc.kind === 'dependency');
+  if (compiledOrInternal.length > 0) {
+    return `
+      <div class="location-card warn">
+        <strong>File/line:</strong>
+        ${escapeHtml(locationText(compiledOrInternal[0]))} exact project source nahi hai. Ye compiled bundle, extension wrapper, ya dependency stack ho sakta hai.
+        VS Code me component/API/error text search karo, ya Analyze dabao for better root-cause context.
+      </div>`;
+  }
+
+  return `
+    <div class="location-card warn">
+      <strong>File/line:</strong>
+      Abhi exact file/line nahi mila. Reason: browser ne source map/original TS location nahi diya ya detector component-level signal de raha hai.
+      VS Code me component/API/error text search karo, ya Analyze dabao for better root-cause context.
+    </div>`;
+}
+
+function endpointFromAnalysis(result: AnalysisResult): string | undefined {
+  if (result.category !== 'slow-api' && result.category !== 'duplicate-request') return undefined;
+  return firstUrl(`${result.title}\n${result.summary}\n${result.detail ?? ''}`);
 }
 
 function explainAnalysis(result: AnalysisResult): { meaning: string; next: string } {
