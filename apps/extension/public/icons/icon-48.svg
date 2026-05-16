@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-label="Angular AI Debugger">
+  <rect width="48" height="48" rx="10" fill="#111827"/>
+  <path d="M24 6 39 12v13.5c0 8.1-5.4 13.5-15 16.5C14.4 39 9 33.6 9 25.5V12L24 6Z" fill="#48b6a3"/>
+  <path d="M15 34 24 12l9 22h-4.1l-1.4-4H20.5L19.1 34H15Zm7-7.8h4L24 20l-2 6.2Z" fill="#0d1117"/>
+  <circle cx="36" cy="12" r="5" fill="#8bb6ff"/>
+</svg>

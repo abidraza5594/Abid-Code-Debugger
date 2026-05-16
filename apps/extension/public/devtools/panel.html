@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Angular AI Debugger</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="mark" aria-hidden="true"></span>
+        <div>
+          <h1>Angular AI Debugger</h1>
+          <p id="status-line">Live capture ready</p>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="btn-toggle" type="button">Pause</button>
+        <button id="btn-analyze" type="button">Analyze</button>
+        <button id="btn-heap" type="button">Heap</button>
+        <button id="btn-clear" type="button">Clear</button>
+      </div>
+    </header>
+
+    <nav class="tabs" aria-label="Debugger sections">
+      <button class="active" type="button" data-tab="errors">Errors</button>
+      <button type="button" data-tab="network">Network</button>
+      <button type="button" data-tab="angular">Angular</button>
+      <button type="button" data-tab="memory">Memory</button>
+      <button type="button" data-tab="rxjs">RxJS</button>
+      <button type="button" data-tab="performance">Performance</button>
+      <button type="button" data-tab="ai">AI Suggestions</button>
+      <button type="button" data-tab="fixes">Auto Fixes</button>
+    </nav>
+
+    <main id="panel-main" class="panel" aria-live="polite"></main>
+    <script src="panel.js"></script>
+  </body>
+</html>

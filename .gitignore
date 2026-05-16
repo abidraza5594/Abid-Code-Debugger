@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.tsbuildinfo
+*.tsbuildinfo
+
+# Local secrets
+.env
+.env.local
+apps/ai-engine/.env
+
+# Runtime data
+apps/ai-engine/data/
+*.log
+
+# Browser build artifacts
+apps/extension/dist/
+apps/dashboard/dist/

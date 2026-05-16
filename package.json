@@ -1,0 +1,25 @@
+{
+  "name": "angular-ai-debugger",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chrome DevTools extension and local AI engine for Angular runtime debugging and performance analysis.",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "build:dev": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "clean": "npm run clean --workspaces --if-present"
+  },
+  "overrides": {
+    "@mistralai/mistralai": "2.2.1"
+  },
+  "engines": {
+    "node": ">=20.11.0",
+    "npm": ">=10.0.0"
+  }
+}

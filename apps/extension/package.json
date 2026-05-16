@@ -1,0 +1,21 @@
+{
+  "name": "@angular-ai-debugger/extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-extension.mjs",
+    "dev": "node scripts/build-extension.mjs --watch",
+    "clean": "rimraf dist .tsbuildinfo",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@angular-ai-debugger/shared-types": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.287",
+    "esbuild": "^0.24.2",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.7.2"
+  }
+}
