@@ -34,6 +34,41 @@
       <button type="button" data-tab="fixes">Auto Fixes</button>
     </nav>
 
+    <section class="filters" aria-label="Debugger filters">
+      <label>
+        Search
+        <input id="filter-query" type="search" placeholder="component, API, error..." />
+      </label>
+      <label>
+        Severity
+        <select id="filter-severity">
+          <option value="all">All</option>
+          <option value="critical">Critical</option>
+          <option value="high">High</option>
+          <option value="medium">Medium</option>
+          <option value="low">Low</option>
+          <option value="info">Info</option>
+          <option value="warn">Warn</option>
+          <option value="error">Error</option>
+        </select>
+      </label>
+      <label>
+        Network speed
+        <select id="filter-speed">
+          <option value="all">All</option>
+          <option value="failed">Failed</option>
+          <option value="slow">Slow 1500ms+</option>
+          <option value="medium">Medium 500ms+</option>
+          <option value="fast">Fast &lt;500ms</option>
+        </select>
+      </label>
+      <label class="check">
+        <input id="filter-issues" type="checkbox" />
+        Only issues
+      </label>
+      <button id="btn-filter-clear" type="button">Reset filters</button>
+    </section>
+
     <main id="panel-main" class="panel" aria-live="polite"></main>
     <script src="panel.js"></script>
   </body>

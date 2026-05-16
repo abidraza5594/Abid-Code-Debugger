@@ -477,6 +477,36 @@ Fix direction:
 - Listeners/observers/timers cleanup karo.
 - Slow API ke backend logs check karo.
 
+## 9C. Filters Kaise Use Kare
+
+Panel ke top me filters milenge:
+
+- `Search`: component name, API URL, error text, method, file path search karne ke liye.
+- `Severity`: critical/high/medium/low/info/warn/error filter karne ke liye.
+- `Network speed`: failed, slow, medium, fast API calls filter karne ke liye.
+- `Only issues`: normal logs/API hide karke sirf suspicious cheezein dikhata hai.
+- `Reset filters`: filters clear kar deta hai.
+
+Color meaning:
+
+- Green/Fast = normal ya fast.
+- Yellow/Medium/Warn = warning ya thoda slow; watch karo.
+- Red/High/Critical = serious, failed, ya slow; pehle check karo.
+
+Network speed rule:
+
+- `FAST <500ms` = good.
+- `MEDIUM 500-1500ms` = okay but watch.
+- `SLOW 1500ms+` = optimize/check needed.
+- `VERY SLOW 3000ms+` = high priority.
+- `FAILED/4xx/5xx` = request/server/auth issue.
+
+File/line rule:
+
+- Agar stack trace/source map available hai to Abid Debugger `Location:` dikhayega.
+- Agar sirf component name available hai to component name dikhayega.
+- Agar file/line unknown hai to VS Code me component/error/API text search karo ya `Analyze` dabao.
+
 ## 10. Heap / Memory Snapshot Test
 
 DevTools panel me:
