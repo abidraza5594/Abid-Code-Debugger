@@ -58,7 +58,7 @@ function renderHtml({ session, analyses }: ReportInput): string {
     .join('\n');
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8" />
-<title>Angular AI Debugger — Session ${esc(session.id)}</title>
+<title>Abid Debugger - Session ${esc(session.id)}</title>
 <style>
   :root { color-scheme: dark; }
   body { background:#0e1116; color:#e6edf3; font:14px/1.5 ui-sans-serif, system-ui, sans-serif; padding:24px; max-width:960px; margin:auto; }
@@ -80,7 +80,7 @@ function renderHtml({ session, analyses }: ReportInput): string {
 </style>
 </head><body>
 <header class="page">
-  <h1>Angular AI Debugger Report</h1>
+  <h1>Abid Debugger Report</h1>
   <p>Session <code>${esc(session.id)}</code> · ${session.url ? esc(session.url) : ''} · Started ${new Date(session.startedAt).toISOString()}</p>
 </header>
 ${rows}
@@ -90,7 +90,7 @@ ${rows}
 function renderMarkdown({ session, analyses }: ReportInput): string {
   const byResultId = new Map(analyses.map((a) => [a.resultId, a]));
   const lines: string[] = [
-    `# Angular AI Debugger Report`,
+    `# Abid Debugger Report`,
     ``,
     `**Session:** ${session.id}`,
     session.url ? `**URL:** ${session.url}` : '',

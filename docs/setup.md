@@ -69,13 +69,13 @@ Invoke-RestMethod http://127.0.0.1:5757/health
 3. Click Load unpacked.
 4. Select `apps/extension/dist`.
 5. Open DevTools on an Angular app.
-6. Open the `AI Debugger` tab.
+6. Open the `Abid Debugger` tab.
 
 ## Normal Debugging Flow
 
 1. Load the inspected Angular app.
 2. Keep the AI engine running locally.
-3. Open the `AI Debugger` DevTools panel.
+3. Open the `Abid Debugger` DevTools panel.
 4. Reproduce the issue.
 5. Use tabs for live Errors, Network, Angular, Memory, RxJS, and Performance telemetry.
 6. Click `Analyze` to generate root-cause suggestions.

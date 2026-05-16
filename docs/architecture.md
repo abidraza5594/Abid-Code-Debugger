@@ -2,7 +2,7 @@
 
 ## Product Boundary
 
-Angular AI Debugger is a local-first Chrome DevTools extension plus Node.js AI engine.
+Abid Debugger is a local-first Chrome DevTools extension plus Node.js AI engine.
 
 ```
 Angular app page

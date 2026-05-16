@@ -3,9 +3,9 @@
  */
 
 chrome.devtools.panels.create(
-  'AI Debugger',
+  'Abid Debugger',
   'icons/icon-48.svg',
-  'panel.html',
+  'devtools/panel.html',
   () => {
     // Panel created. The panel script itself handles connection setup.
   },

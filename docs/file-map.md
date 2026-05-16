@@ -24,7 +24,7 @@
 - `apps/extension/src/content/inject.ts`: injected runtime entrypoint.
 - `apps/extension/src/injected/**`: browser collectors for console, errors, network, Angular, RxJS, memory, DOM, and rendering.
 - `apps/extension/src/devtools/panel.ts`: typed live panel state, tabs, AI analysis rendering, and fix preview.
-- `apps/extension/src/devtools/devtools.ts`: registers the `AI Debugger` DevTools tab.
+- `apps/extension/src/devtools/devtools.ts`: registers the `Abid Debugger` DevTools tab.
 
 ## AI Engine
 

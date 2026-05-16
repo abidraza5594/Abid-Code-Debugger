@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Angular AI Debugger",
+  "name": "Abid Debugger",
   "description": "DevTools extension for Angular runtime issues, network analysis, memory leaks, and AI fix suggestions.",
   "version": "0.1.0",
   "minimum_chrome_version": "120",
