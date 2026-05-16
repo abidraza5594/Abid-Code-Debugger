@@ -13,6 +13,6 @@
     "clean": "rimraf dist .tsbuildinfo",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
-  "dependencies": { "@angular-ai-debugger/shared-types": "workspace:*" },
+  "dependencies": { "@angular-ai-debugger/shared-types": "file:../shared-types" },
   "devDependencies": { "rimraf": "^6.0.1", "typescript": "^5.7.2" }
 }

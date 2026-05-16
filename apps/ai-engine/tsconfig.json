@@ -8,6 +8,5 @@
     "moduleResolution": "Bundler",
     "composite": false
   },
-  "include": ["src/**/*"],
-  "references": [{ "path": "../../packages/shared-types" }]
+  "include": ["src/**/*"]
 }

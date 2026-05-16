@@ -128,8 +128,9 @@ export type CapturedEvent =
 export type CapturedEventSource = CapturedEvent['source'];
 export type EventOf<S extends CapturedEventSource> = Extract<CapturedEvent, { source: S }>;
 
-export interface NetworkEvent extends BaseEvent {
-  source: 'fetch' | 'xhr';
+export type NetworkEvent = FetchNetworkEvent | XhrNetworkEvent;
+
+interface BaseNetworkEvent extends BaseEvent {
   kind: 'request' | 'response' | 'error';
   requestId: string;
   method: string;
@@ -149,6 +150,14 @@ export interface NetworkEvent extends BaseEvent {
     type: 'script' | 'parser' | 'other';
     stack?: string;
   };
+}
+
+export interface FetchNetworkEvent extends BaseNetworkEvent {
+  source: 'fetch';
+}
+
+export interface XhrNetworkEvent extends BaseNetworkEvent {
+  source: 'xhr';
 }
 
 export interface ConsoleEvent extends BaseEvent {

@@ -15,7 +15,7 @@ import type {
   AnalysisResult,
 } from '@angular-ai-debugger/shared-types';
 import { aiAvailable } from '../config.js';
-import { mistral } from '../mistral/client.js';
+import { aiClient } from '../ai/client.js';
 import { store } from '../storage/sqlite.js';
 import { runFixes } from './engine.js';
 import { existsSync, readFileSync } from 'node:fs';
@@ -52,17 +52,19 @@ export class FixOrchestrator {
         body: `Applied deterministic rules: ${ruleIds}.\n\n\`\`\`diff\n${diffs.join('\n')}\n\`\`\``,
         autoApplicable: true,
         autoApplicableReason: 'Produced by ts-morph rules with no AI generation. Apply with `git apply`.',
+        diff: diffs.join('\n'),
+        files: filePath ? [filePath] : [],
       };
     }
 
-    if (!aiAvailable() || !mistral.ready()) {
+    if (!aiAvailable() || !aiClient.ready()) {
       return {
         id: `fix:${analysisId}`,
         analysisId,
         model: 'ts-morph',
         title: 'No safe auto-fix available',
         body:
-          'No deterministic rule matched, and no Mistral key is configured for code generation. Recommended actions remain in the AI analysis.',
+          'No deterministic rule matched, and no configured AI provider is available for code generation. Recommended actions remain in the AI analysis.',
         autoApplicable: false,
         autoApplicableReason: 'No AI generation available offline.',
       };
@@ -73,7 +75,7 @@ export class FixOrchestrator {
       : [];
 
     try {
-      const { data, model } = await mistral.fixPatch({
+      const { data, model } = await aiClient.fixPatch({
         analysisHeadline: analysis.headline,
         rootCause: analysis.rootCause,
         recommendedActions: analysis.recommendedActions,
@@ -88,15 +90,17 @@ export class FixOrchestrator {
         body: data.body,
         autoApplicable: data.autoApplicable && data.diff.length > 0,
         autoApplicableReason: data.autoApplicableReason,
+        diff: data.diff,
+        files: data.files,
       };
     } catch (err) {
-      this.deps.log('warn', 'mistral fixPatch failed', err);
+      this.deps.log('warn', 'AI fixPatch failed', err);
       return {
         id: `fix:${analysisId}`,
         analysisId,
         model: 'ts-morph',
         title: 'Auto-fix generation failed',
-        body: `An error occurred contacting Mistral: ${(err as Error).message}`,
+        body: `An error occurred contacting the AI provider: ${(err as Error).message}`,
         autoApplicable: false,
         autoApplicableReason: 'Generation error.',
       };

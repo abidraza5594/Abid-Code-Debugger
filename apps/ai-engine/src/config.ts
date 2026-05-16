@@ -6,6 +6,8 @@
 import 'dotenv/config';
 import type { MistralModelId } from '@angular-ai-debugger/shared-types';
 
+export type AiProvider = 'mistral' | 'ollama' | 'heuristic';
+
 function envString(key: string, fallback: string): string {
   const v = process.env[key];
   return v && v.length > 0 ? v : fallback;
@@ -19,12 +21,20 @@ function envInt(key: string, fallback: number): number {
 }
 
 export interface EngineConfig {
+  ai: {
+    provider: AiProvider;
+  };
   mistral: {
     apiKey: string | undefined;
     rootCauseModel: MistralModelId;
     fixModel: MistralModelId;
     refactorModel: MistralModelId;
     classifyModel: MistralModelId;
+  };
+  ollama: {
+    baseUrl: string;
+    rootCauseModel: string;
+    fixModel: string;
   };
   http: { port: number };
   ws: { port: number };
@@ -37,12 +47,20 @@ export interface EngineConfig {
 }
 
 export const config: EngineConfig = {
+  ai: {
+    provider: envString('AI_PROVIDER', 'mistral') as AiProvider,
+  },
   mistral: {
     apiKey: process.env.MISTRAL_API_KEY?.length ? process.env.MISTRAL_API_KEY : undefined,
     rootCauseModel: envString('MISTRAL_ROOT_CAUSE_MODEL', 'mistral-large-3-25-12') as MistralModelId,
     fixModel: envString('MISTRAL_FIX_MODEL', 'codestral-25-08') as MistralModelId,
     refactorModel: envString('MISTRAL_REFACTOR_MODEL', 'devstral-2-25-12') as MistralModelId,
     classifyModel: envString('MISTRAL_CLASSIFY_MODEL', 'ministral-3-8b-25-12') as MistralModelId,
+  },
+  ollama: {
+    baseUrl: envString('OLLAMA_BASE_URL', 'http://127.0.0.1:11434'),
+    rootCauseModel: envString('OLLAMA_ROOT_CAUSE_MODEL', 'qwen2.5-coder:14b'),
+    fixModel: envString('OLLAMA_FIX_MODEL', 'qwen2.5-coder:14b'),
   },
   http: { port: envInt('HTTP_PORT', 5757) },
   ws: { port: envInt('WS_PORT', 5758) },
@@ -58,5 +76,7 @@ export const config: EngineConfig = {
 };
 
 export function aiAvailable(): boolean {
+  if (config.ai.provider === 'heuristic') return false;
+  if (config.ai.provider === 'ollama') return true;
   return typeof config.mistral.apiKey === 'string';
 }

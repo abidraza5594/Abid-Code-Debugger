@@ -140,6 +140,11 @@ chrome.runtime.onMessage.addListener((message: AnyMessage, sender, sendResponse)
     message.sessionId = tab.sessionId;
     tab.devtoolsPort?.postMessage(message);
     sendToEngine(message);
+  } else if (message.channel === 'session' && message.type === 'started') {
+    message.tabId = tabId;
+    message.sessionId = tab.sessionId;
+    message.payload.sessionId = tab.sessionId;
+    sendToEngine(message);
   }
   sendResponse({ ok: true });
   return false;
@@ -224,6 +229,7 @@ async function handleControlCommand(
         sessionId: tab.sessionId,
         payload: cmd,
       } satisfies Envelope);
+      if (cmd.name === 'clear-buffer') tab.buffer.clear();
       break;
     case 'request-analysis':
     case 'request-fix':

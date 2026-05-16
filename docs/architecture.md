@@ -1,83 +1,115 @@
 # Architecture
 
-## Goals
+## Product Boundary
 
-1. **Local-first.** Nothing leaves the developer's machine without an explicit Mistral API key.
-2. **Plugin-based.** A new detector or auto-fix rule should be a single TypeScript file dropped into `packages/*-detectors` or `apps/ai-engine/src/auto-fix/rules/`.
-3. **Replaceable AI provider.** The Mistral client is one file (`apps/ai-engine/src/mistral/client.ts`); the rest of the engine talks to it through a narrow surface (`rootCause`, `fixPatch`, `classifyNoise`).
-
-## Boundaries
+Angular AI Debugger is a local-first Chrome DevTools extension plus Node.js AI engine.
 
 ```
-inspected page          extension (Chrome)             engine (Node)
-─────────────         ───────────────────────         ────────────────
-MAIN world            ISOLATED world                  WebSocket :5758
-↓                     ↓                               ↓
-inject.ts             content-script                  websocket.ts
-  bridge              (transport only)                  ↓
-  interceptors          ↓                             SessionManager
-  Angular hooks       chrome.runtime.sendMessage        ↓
-                        ↓                             Pipeline (per session)
-                      service-worker.ts                 ↓
-                        - per-tab event ring          detectors (heuristic)
-                        - CDP attach (heap)             ↓
-                        - WS bridge                   AnalysisResult[]
-                                                        ↓
-                                                      RootCauseAnalyzer
-                                                        - Mistral large-3
-                                                        - heuristic fallback
-                                                        ↓
-                                                      AiAnalysis
-                                                        ↓
-                                                      FixOrchestrator
-                                                        - ts-morph rules first
-                                                        - Mistral codestral
-                                                        ↓
-                                                      AiFixSuggestion (+ diff)
+Angular app page
+  |
+  | MAIN world injected runtime
+  | - fetch / XHR interceptors
+  | - console / error hooks
+  | - Angular runtime probes
+  | - RxJS lifecycle tracker
+  | - PerformanceObserver / RAF / MutationObserver
+  v
+Content script bridge
+  |
+  | chrome.runtime messages
+  v
+MV3 background service worker
+  |
+  | WebSocket ws://127.0.0.1:5758
+  v
+Local AI engine
+  |
+  | Detector pipeline -> root-cause synthesis -> safe fix suggestions
+  v
+SQLite store + HTML / Markdown / JSON reports
 ```
 
-## Why MAIN-world injection
+## Workspace Layout
 
-Angular's debug surface (`window.ng`, `getAllAngularRootElements`) is only available to scripts running in the page's JavaScript realm. Content scripts run in an isolated realm by default — they can read DOM but not page globals. Hence the two-layer approach: a content script (ISOLATED) loads a small bootstrap that injects the real interceptor bundle (MAIN) via a `<script>` tag, then the two communicate via `window.postMessage`.
+```
+apps/
+  extension/       Chrome MV3 extension, DevTools panel, page injected collectors.
+  ai-engine/       Express + WebSocket local engine, detectors, AI providers, reports.
 
-## Backpressure
+packages/
+  shared-types/    Shared event, message, detector, analysis, and fix contracts.
+  angular-detectors/
+  memory-detectors/
+  network-detectors/
+  performance-detectors/
+  rxjs-detectors/
+```
 
-Each session keeps a 10 000-event ring buffer in the background service worker; older events drop on overflow. Every detector receives batches (250ms or 200 events) rather than per-event callbacks so the JS engine has a chance to GC between bursts. The engine likewise caps stored events at 30 000 per session.
+## Runtime Data Flow
 
-## Mistral usage
+1. `content-script.ts` runs at `document_start` in Chrome's isolated world.
+2. It injects `content/inject.js` into the page's MAIN world.
+3. MAIN-world collectors emit typed `CapturedEvent` objects through `bridge.ts`.
+4. The content script forwards envelopes to the MV3 background worker.
+5. The background worker buffers per-tab events, forwards live events to the DevTools panel, and streams them to the local engine.
+6. The engine routes event batches through a plugin-style detector pipeline.
+7. Detector findings are shown live in DevTools and persisted when analysis is requested.
+8. The AI provider receives redacted evidence and returns root-cause analysis.
+9. Auto-fix first tries deterministic `ts-morph` rules, then asks the configured AI provider for review-only patches.
 
-| Call site | Model | Output |
-|-----------|-------|--------|
-| `RootCauseAnalyzer.analyze` | `mistral-large-3-25-12` | structured `RootCauseAnalysis` via Zod schema |
-| `FixOrchestrator.suggestFor` | `codestral-25-08` | structured `FixSuggestion` (unified diff in `diff` field) |
-| (planned) classifier | `ministral-3-8b-25-12` | `ClassifyNoise` |
+## AI Providers
 
-Each call uses `client.chat.parse(...)` with the corresponding Zod schema — this is more reliable than plain JSON mode and gives us typed responses at compile time.
+The engine is provider-gated by `AI_PROVIDER`:
 
-The Mistral SDK is pinned to `2.2.1` in the root `package.json` `pnpm.overrides`. Versions 2.2.2 – 2.2.4 contain the May-2026 Mini-Shai-Hulud dropper (`GHSA-jgg6-4rpr-wfh7`).
+- `mistral`: uses `MISTRAL_API_KEY` and structured Mistral outputs.
+- `ollama`: uses local `OLLAMA_BASE_URL` and JSON-mode chat responses.
+- `heuristic`: disables external AI and returns deterministic fallback guidance.
 
-## Failure modes
+No API key is stored in source. Put secrets in `apps/ai-engine/.env`, which is gitignored.
 
-- **No API key.** The engine returns `heuristicAnalysis(result)` from `analyzers/heuristic-fallback.ts`. Output remains structured and useful.
-- **Mistral 429 / 5xx.** The SDK's `retryConfig: { strategy: 'backoff', maxElapsedTime: 30_000 }` covers transient errors. Hard failures fall back to heuristic output and emit a warning to the logger.
-- **Schema parse failure.** `client.chat.parse(...)` throws; we log and fall back to heuristic.
-- **CDP attach denied.** Heap snapshots fail silently; everything else continues.
-- **Extension service worker terminated.** On reconnect the panel sends a `register` envelope, the background flushes its buffer, the engine de-dupes by `seq`.
+## Detector Interface
 
-## Storage
+```ts
+export interface Detector {
+  id: string;
+  name: string;
+  consumes: CapturedEventSource[];
+  setup(ctx: DetectorContext): Promise<void> | void;
+  analyze(events: CapturedEvent[], ctx: DetectorContext): Promise<AnalysisResult[]> | AnalysisResult[];
+  finalize(ctx: DetectorContext): Promise<AnalysisResult[]> | AnalysisResult[];
+  cleanup(ctx: DetectorContext): Promise<void> | void;
+}
+```
 
-Events: in-memory only.
-Sessions, AnalysisResults, AiAnalyses: SQLite at `apps/ai-engine/data/engine.db` (WAL mode).
-Reports: filesystem at `apps/ai-engine/data/reports/<sessionId>/{report.html, report.md, report.json}`.
+The current built-ins cover:
 
-## Adding a new detector
+- Slow API calls.
+- Duplicate or polling requests.
+- Runtime errors and unhandled rejections.
+- Angular change-detection storms.
+- Hot component rerender signals.
+- RxJS long-lived subscription suspects.
+- Detached DOM and listener leaks.
+- Long tasks, low FPS, and layout shift.
 
-1. Create `packages/<topic>-detectors/src/<name>.ts` implementing the `Detector` interface from `@angular-ai-debugger/shared-types`.
-2. Add it to the array returned by `loadBuiltInDetectors()` in `apps/ai-engine/src/analyzers/detectors/index.ts`.
-3. (Optional) Pair it with a fix rule under `apps/ai-engine/src/auto-fix/rules/` and add its category to that rule's `appliesTo`.
+## Security Model
 
-## Adding a new auto-fix rule
+- Extension activity is gated by opening the DevTools panel.
+- The AI engine binds to loopback only.
+- Request headers and JSON fields matching credential patterns are redacted before leaving the page.
+- Password fields, cookies, and browser credentials are never read.
+- Heap snapshots require the user-triggered DevTools `Heap` action because Chrome displays debugger permission prompts.
 
-1. Create `apps/ai-engine/src/auto-fix/rules/<name>.ts` implementing the `FixRule` interface.
-2. Register it in `apps/ai-engine/src/auto-fix/engine.ts` `RULES`.
-3. Tag the analysis categories it handles in `appliesTo`.
+## Persistence
+
+The engine persists sessions, detector results, and AI analyses to SQLite at:
+
+```
+apps/ai-engine/data/engine.db
+```
+
+Reports are written under:
+
+```
+apps/ai-engine/data/reports/<sessionId>/
+```

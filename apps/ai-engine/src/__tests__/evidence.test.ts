@@ -1,5 +1,5 @@
 /**
- * Lightweight unit tests. Run with `node --test --import tsx dist/**/*.test.js` (after build)
+ * Lightweight unit tests. Run with node --test after build.
  * or wire to a runner of your choice. The shapes here also serve as documentation for the
  * detector contracts.
  */

@@ -4,7 +4,7 @@
 
 chrome.devtools.panels.create(
   'AI Debugger',
-  'icons/icon-48.png',
+  'icons/icon-48.svg',
   'panel.html',
   () => {
     // Panel created. The panel script itself handles connection setup.

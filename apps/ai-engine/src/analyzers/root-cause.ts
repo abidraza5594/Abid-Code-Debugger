@@ -10,7 +10,7 @@ import type {
   CapturedEvent,
 } from '@angular-ai-debugger/shared-types';
 import { aiAvailable } from '../config.js';
-import { mistral } from '../mistral/client.js';
+import { aiClient } from '../ai/client.js';
 import { buildEvidenceText } from './evidence.js';
 import { heuristicAnalysis } from './heuristic-fallback.js';
 
@@ -22,12 +22,12 @@ export class RootCauseAnalyzer {
   constructor(private readonly deps: RootCauseDeps) {}
 
   async analyze(result: AnalysisResult, events: CapturedEvent[]): Promise<AiAnalysis> {
-    if (!aiAvailable() || !mistral.ready()) {
+    if (!aiAvailable() || !aiClient.ready()) {
       return heuristicAnalysis(result);
     }
     const evidence = buildEvidenceText(result, events);
     try {
-      const { data, model, promptTokens, completionTokens } = await mistral.rootCause({
+      const { data, model, promptTokens, completionTokens } = await aiClient.rootCause({
         result,
         evidenceText: evidence,
       });

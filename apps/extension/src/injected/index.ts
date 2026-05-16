@@ -23,6 +23,7 @@ import {
   installApplicationRefTickHook,
 } from './angular/zone-profiler.js';
 import { installChangeDetectionMonitor } from './angular/change-detection.js';
+import { snapshotComponentTree } from './angular/component-tree.js';
 import { bridge } from './bridge.js';
 
 let booted = false;
@@ -61,6 +62,30 @@ export function bootInjectedRuntime(): void {
   // even if the user closes the tab quickly.
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') bridge.flush();
+  });
+
+  bridge.onControl((envelope) => {
+    if (envelope.channel !== 'control' || envelope.type !== 'command') return;
+    switch (envelope.payload.name) {
+      case 'start-capture':
+        bridge.setEnabled(true);
+        break;
+      case 'stop-capture':
+        bridge.setEnabled(false);
+        break;
+      case 'clear-buffer':
+        bridge.flush();
+        break;
+      case 'request-component-tree':
+        bridge.emit({
+          source: 'angular',
+          kind: 'component-tree',
+          tree: snapshotComponentTree(),
+        });
+        break;
+      default:
+        break;
+    }
   });
 }
 

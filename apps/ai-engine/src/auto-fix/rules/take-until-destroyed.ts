@@ -91,7 +91,7 @@ function alreadyHasTakeUntilDestroyed(node: CallExpression): boolean {
         }
       }
     }
-    cur = (callee as { getExpression(): Node }).getExpression();
+    cur = (callee as unknown as { getExpression(): Node }).getExpression();
   }
   return false;
 }

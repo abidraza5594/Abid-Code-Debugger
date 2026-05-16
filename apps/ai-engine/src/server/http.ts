@@ -17,7 +17,8 @@ export function buildHttpApp(): Express {
   });
 
   app.get('/api/sessions/:id', (req: Request, res: Response) => {
-    const data = store.loadSession(req.params.id ?? '');
+    const sessionId = Array.isArray(req.params.id) ? (req.params.id[0] ?? '') : (req.params.id ?? '');
+    const data = store.loadSession(sessionId);
     if (!data.session) {
       res.status(404).json({ error: 'session not found' });
       return;

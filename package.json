@@ -9,10 +9,10 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
-    "build:dev": "npm run build --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present",
+    "build": "npm run build -w @angular-ai-debugger/shared-types && npm run build -w @angular-ai-debugger/angular-detectors && npm run build -w @angular-ai-debugger/memory-detectors && npm run build -w @angular-ai-debugger/network-detectors && npm run build -w @angular-ai-debugger/performance-detectors && npm run build -w @angular-ai-debugger/rxjs-detectors && npm run build -w @angular-ai-debugger/ai-engine && npm run build -w @angular-ai-debugger/extension",
+    "build:dev": "npm run build",
+    "typecheck": "npm run build -w @angular-ai-debugger/shared-types && npm run typecheck -w @angular-ai-debugger/angular-detectors && npm run typecheck -w @angular-ai-debugger/memory-detectors && npm run typecheck -w @angular-ai-debugger/network-detectors && npm run typecheck -w @angular-ai-debugger/performance-detectors && npm run typecheck -w @angular-ai-debugger/rxjs-detectors && npm run typecheck -w @angular-ai-debugger/ai-engine && npm run typecheck -w @angular-ai-debugger/extension",
+    "test": "npm run build -w @angular-ai-debugger/shared-types && npm run build -w @angular-ai-debugger/ai-engine && npm run test -w @angular-ai-debugger/ai-engine --if-present",
     "clean": "npm run clean --workspaces --if-present"
   },
   "overrides": {

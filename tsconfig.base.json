@@ -14,10 +14,6 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "verbatimModuleSyntax": true,
-    "baseUrl": ".",
-    "paths": {
-      "@angular-ai-debugger/shared-types": ["packages/shared-types/src/index.ts"]
-    }
+    "verbatimModuleSyntax": true
   }
 }

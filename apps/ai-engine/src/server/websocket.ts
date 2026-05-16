@@ -25,6 +25,7 @@ type Log = (level: 'debug' | 'info' | 'warn' | 'error', msg: string, meta?: unkn
 export class EngineWebSocketServer {
   private readonly wss: WebSocketServer;
   private readonly clients = new Set<WebSocket>();
+  private readonly sessionTabs = new Map<string, number>();
   private readonly sessionManager: SessionManager;
   private readonly rootCause: RootCauseAnalyzer;
   private readonly fixer: FixOrchestrator;
@@ -57,9 +58,19 @@ export class EngineWebSocketServer {
   }
 
   private async dispatch(msg: AnyMessage): Promise<void> {
+    if (msg.channel === 'session' && msg.type === 'started') {
+      if (!msg.sessionId) return;
+      if (msg.tabId !== undefined) this.sessionTabs.set(msg.sessionId, msg.tabId);
+      await this.sessionManager.setSessionMeta(msg.sessionId, {
+        url: msg.payload.url,
+        userAgent: msg.payload.userAgent,
+      });
+      return;
+    }
     if (msg.channel === 'capture') {
       const batch = msg.type === 'batch' ? msg.payload.events : [msg.payload.event];
       if (!msg.sessionId) return;
+      if (msg.tabId !== undefined) this.sessionTabs.set(msg.sessionId, msg.tabId);
       await this.sessionManager.ingest(msg.sessionId, batch);
       return;
     }
@@ -103,7 +114,7 @@ export class EngineWebSocketServer {
         source: 'engine',
         sessionId,
         ...(tabId !== undefined ? { tabId } : {}),
-        payload: { results: [result] },
+        payload: { results: [result], analyses: [analysis] },
       } satisfies Envelope);
       this.broadcast({
         id: `ai:${analysis.id}`,
@@ -114,6 +125,7 @@ export class EngineWebSocketServer {
         ...(tabId !== undefined ? { tabId } : {}),
         payload: {
           session: { ...session, results: [result] },
+          analyses: [analysis],
         },
       } satisfies Envelope);
     }
@@ -138,12 +150,14 @@ export class EngineWebSocketServer {
   }
 
   private broadcastResult(sessionId: string, result: AnalysisResult): void {
+    const tabId = this.sessionTabs.get(sessionId);
     this.broadcast({
       id: `live:${result.id}`,
       channel: 'analysis',
       type: 'results',
       source: 'engine',
       sessionId,
+      ...(tabId !== undefined ? { tabId } : {}),
       payload: { results: [result] },
     } satisfies Envelope);
   }

@@ -105,13 +105,12 @@ class MistralEngineClient {
   }
 }
 
-function extract<T>(
-  response: {
-    choices?: Array<{ message?: { parsed?: T; content?: string | null } }>;
-    usage?: { promptTokens?: number; completionTokens?: number };
-  },
-  model: MistralModelId,
-): ParsedOutput<T> {
+interface ExtractableResponse<T> {
+  choices?: Array<{ message?: { parsed?: T; content?: unknown } }>;
+  usage?: { promptTokens?: number; completionTokens?: number };
+}
+
+function extract<T>(response: ExtractableResponse<T>, model: MistralModelId): ParsedOutput<T> {
   const first = response.choices?.[0]?.message;
   if (!first) throw new Error('Mistral response missing choices[0].message');
   let parsed = first.parsed;

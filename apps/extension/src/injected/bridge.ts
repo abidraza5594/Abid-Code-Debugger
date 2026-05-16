@@ -26,6 +26,7 @@ class Bridge {
   private flushTimer: ReturnType<typeof setTimeout> | undefined;
   private opts: BridgeOptions;
   private controlHandlers = new Set<(envelope: Envelope) => void>();
+  private enabled = true;
 
   constructor(opts: Partial<BridgeOptions> = {}) {
     this.sessionId = `pg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -37,6 +38,7 @@ class Bridge {
   emit<T extends Omit<BaseEvent, 'sessionId' | 'seq' | 'pageTime' | 'wallTime'> & Partial<BaseEvent>>(
     event: T & Pick<CapturedEvent, 'source'>,
   ): void {
+    if (!this.enabled) return;
     this.seq += 1;
     const stamped = {
       ...event,
@@ -74,6 +76,11 @@ class Bridge {
 
   onControl(handler: (env: Envelope) => void): void {
     this.controlHandlers.add(handler);
+  }
+
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
+    if (!enabled) this.flush();
   }
 
   private handleMessage = (ev: MessageEvent): void => {

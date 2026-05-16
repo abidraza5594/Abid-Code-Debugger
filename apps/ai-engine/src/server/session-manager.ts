@@ -48,6 +48,14 @@ export class SessionManager {
     return pipeline.ingest(batch);
   }
 
+  async setSessionMeta(
+    sessionId: string,
+    meta: { url?: string; userAgent?: string },
+  ): Promise<void> {
+    const pipeline = await this.getOrCreate(sessionId);
+    pipeline.setSessionMeta(meta);
+  }
+
   getEvents(sessionId: string): CapturedEvent[] {
     return this.events.get(sessionId) ?? [];
   }
